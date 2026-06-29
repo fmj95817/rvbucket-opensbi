@@ -209,8 +209,10 @@ CC_SUPPORT_ZICSR_ZIFENCEI := $(shell $(CC) $(CLANG_TARGET) $(RELAX_FLAG) -nostdl
 # Check whether the assembler and the compiler support the Vector extension
 CC_SUPPORT_VECTOR := $(shell $(CC) $(CLANG_TARGET) $(RELAX_FLAG) -nostdlib -march=rv$(OPENSBI_CC_XLEN)gv -dM -E -x c /dev/null 2>&1 | grep -q riscv.*vector && echo y || echo n)
 
+ifneq ($(FW_PIC),n)
 ifneq ($(OPENSBI_LD_PIE),y)
 $(error Your linker does not support creating PIEs, opensbi requires this.)
+endif
 endif
 
 # Build Info:
@@ -397,7 +399,11 @@ CFLAGS		+=	-mcmodel=$(PLATFORM_RISCV_CODE_MODEL)
 CFLAGS		+=	$(RELAX_FLAG)
 CFLAGS		+=	$(GENFLAGS)
 CFLAGS		+=	$(platform-cflags-y)
+ifeq ($(FW_PIC),n)
+CFLAGS		+=	-fno-pie
+else
 CFLAGS		+=	-fPIE -pie
+endif
 CFLAGS		+=	$(firmware-cflags-y)
 
 CPPFLAGS	+=	$(GENFLAGS)
@@ -406,7 +412,11 @@ CPPFLAGS	+=	$(firmware-cppflags-y)
 
 ASFLAGS		=	-g -Wall -nostdlib
 ASFLAGS		+=	-fno-omit-frame-pointer -fno-optimize-sibling-calls
+ifeq ($(FW_PIC),n)
+ASFLAGS		+=	-fno-pie
+else
 ASFLAGS		+=	-fPIE
+endif
 ASFLAGS		+=	$(REPRODUCIBLE_FLAGS)
 # Optionally supported flags
 ifeq ($(CC_SUPPORT_SAVE_RESTORE),y)
@@ -435,7 +445,11 @@ ifeq ($(OPENSBI_LD_EXCLUDE_LIBS),y)
 ELFFLAGS	+=	-Wl,--exclude-libs,ALL
 endif
 ELFFLAGS	+=	-Wl,--build-id=none
+ifeq ($(FW_PIC),n)
+ELFFLAGS	+=	-Wl,--no-dynamic-linker -no-pie
+else
 ELFFLAGS	+=	-Wl,--no-dynamic-linker -Wl,-pie
+endif
 ELFFLAGS	+=	$(platform-ldflags-y)
 ELFFLAGS	+=	$(firmware-ldflags-y)
 
