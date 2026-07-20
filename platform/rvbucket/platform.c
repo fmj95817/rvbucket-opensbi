@@ -12,8 +12,9 @@
 
 #define RVBUCKET_HART_COUNT          1
 
+#define RVBUCKET_PERI_BASE           0x30000000UL
+#define RVBUCKET_PERI_SIZE           0x01000000UL
 #define RVBUCKET_UART_BASE           0x30000000UL
-#define RVBUCKET_UART_SIZE           0x1000UL
 #define RVBUCKET_UART_REG_TX         0x04UL
 #define RVBUCKET_UART_REG_RX         0x08UL
 #define RVBUCKET_UART_REG_STS        0x0cUL
@@ -110,9 +111,9 @@ static int rvbucket_early_init(bool cold_boot)
 
 	sbi_system_reset_add_device(&rvbucket_reset);
 
-	rc = sbi_domain_root_add_memrange(RVBUCKET_UART_BASE,
-					  RVBUCKET_UART_SIZE,
-					  RVBUCKET_UART_SIZE,
+	rc = sbi_domain_root_add_memrange(RVBUCKET_PERI_BASE,
+					  RVBUCKET_PERI_SIZE,
+					  RVBUCKET_PERI_SIZE,
 					  SBI_DOMAIN_MEMREGION_MMIO |
 					  SBI_DOMAIN_MEMREGION_SHARED_SURW_MRW);
 	if (rc)
