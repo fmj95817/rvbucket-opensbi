@@ -10,7 +10,7 @@
 #include <sbi_utils/irqchip/plic.h>
 #include <sbi_utils/timer/aclint_mtimer.h>
 
-#define RVBUCKET_HART_COUNT          1
+#define RVBUCKET_HART_COUNT          2
 
 #define RVBUCKET_PERI_BASE           0x30000000UL
 #define RVBUCKET_PERI_SIZE           0x01000000UL
@@ -27,7 +27,8 @@
 #define RVBUCKET_ACLINT_MTIME_FREQ   10000UL
 
 #define RVBUCKET_PLIC_BASE           0x31100000UL
-#define RVBUCKET_PLIC_SIZE           (0x200000UL + 0x1000UL)
+#define RVBUCKET_PLIC_SIZE           (0x200000UL + \
+					  RVBUCKET_HART_COUNT * 0x1000UL)
 #define RVBUCKET_PLIC_NUM_SOURCES    32
 
 static void rvbucket_uart_putc(char ch)
@@ -56,7 +57,18 @@ static struct plic_data plic = {
 	.size = RVBUCKET_PLIC_SIZE,
 	.num_src = RVBUCKET_PLIC_NUM_SOURCES,
 	.context_map = {
-		[0] = { 0, -1 },
+#if RVBUCKET_HART_COUNT >= 1
+		[0] = { -1, 0 },
+#endif
+#if RVBUCKET_HART_COUNT >= 2
+		[1] = { -1, 1 },
+#endif
+#if RVBUCKET_HART_COUNT >= 3
+		[2] = { -1, 2 },
+#endif
+#if RVBUCKET_HART_COUNT >= 4
+		[3] = { -1, 3 },
+#endif
 	},
 };
 
@@ -72,7 +84,7 @@ static struct aclint_mtimer_data mtimer = {
 	.mtime_addr = RVBUCKET_ACLINT_MTIME,
 	.mtime_size = 0x8,
 	.mtimecmp_addr = RVBUCKET_ACLINT_MTIMECMP,
-	.mtimecmp_size = 0x8,
+	.mtimecmp_size = 0x8 * RVBUCKET_HART_COUNT,
 	.first_hartid = 0,
 	.hart_count = RVBUCKET_HART_COUNT,
 	.has_64bit_mmio = false,
@@ -100,6 +112,11 @@ static int rvbucket_nascent_init(void)
 {
 	sbi_console_set_device(&rvbucket_console);
 	return 0;
+}
+
+static bool rvbucket_cold_boot_allowed(u32 hartid)
+{
+	return hartid == 0;
 }
 
 static int rvbucket_early_init(bool cold_boot)
@@ -134,6 +151,7 @@ static int rvbucket_timer_init(void)
 
 const struct sbi_platform_operations platform_ops = {
 	.nascent_init = rvbucket_nascent_init,
+	.cold_boot_allowed = rvbucket_cold_boot_allowed,
 	.early_init = rvbucket_early_init,
 	.irqchip_init = rvbucket_irqchip_init,
 	.timer_init = rvbucket_timer_init,
