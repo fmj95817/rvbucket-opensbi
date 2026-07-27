@@ -4,45 +4,41 @@
 #include <sbi/sbi_console.h>
 #include <sbi/sbi_const.h>
 #include <sbi/sbi_domain.h>
+#include <sbi/sbi_ecall_interface.h>
 #include <sbi/sbi_platform.h>
 #include <sbi/sbi_system.h>
 #include <sbi_utils/ipi/aclint_mswi.h>
 #include <sbi_utils/irqchip/plic.h>
 #include <sbi_utils/timer/aclint_mtimer.h>
+#include "regs/sysctrl.h"
+#include "regs/uart.h"
+#include "spec/mmap.h"
 
 #define RVBUCKET_HART_COUNT          2
 
-#define RVBUCKET_PERI_BASE           0x30000000UL
-#define RVBUCKET_PERI_SIZE           0x01000000UL
-#define RVBUCKET_UART_BASE           0x30000000UL
-#define RVBUCKET_UART_REG_TX         0x04UL
-#define RVBUCKET_UART_REG_RX         0x08UL
-#define RVBUCKET_UART_REG_STS        0x0cUL
-#define RVBUCKET_UART_STS_RX_VALID   (1U << 0)
-#define RVBUCKET_SIM_END_CHAR        0x10
-
-#define RVBUCKET_ACLINT_MTIME        0x31000000UL
-#define RVBUCKET_ACLINT_MTIMECMP     0x31010000UL
-#define RVBUCKET_ACLINT_MSWI         0x31020000UL
+#define RVBUCKET_PERI_DOMAIN_SIZE    0x01000000UL
 #define RVBUCKET_ACLINT_MTIME_FREQ   10000UL
+#define RVBUCKET_MTIMER_TICK_CYCLES  10000UL
 
-#define RVBUCKET_PLIC_BASE           0x31100000UL
-#define RVBUCKET_PLIC_SIZE           (0x200000UL + \
+#define RVBUCKET_PLIC_CONTEXT_SIZE   (0x200000UL + \
 					  RVBUCKET_HART_COUNT * 0x1000UL)
 #define RVBUCKET_PLIC_NUM_SOURCES    32
 
 static void rvbucket_uart_putc(char ch)
 {
-	writel((u32)ch, (void *)(RVBUCKET_UART_BASE + RVBUCKET_UART_REG_TX));
+	writel((u32)ch & RVB_UART_TX_REG_DATA_MASK,
+	       (void *)(RVB_UART_BASE + RVB_UART_TX_REG_OFFSET));
 }
 
 static int rvbucket_uart_getc(void)
 {
-	if (!(readl((void *)(RVBUCKET_UART_BASE + RVBUCKET_UART_REG_STS)) &
-	      RVBUCKET_UART_STS_RX_VALID))
+	if (!(readl((void *)(RVB_UART_BASE +
+			    RVB_UART_STATUS_REG_OFFSET)) &
+	      RVB_UART_STATUS_REG_RX_VALID_MASK))
 		return -1;
 
-	return readl((void *)(RVBUCKET_UART_BASE + RVBUCKET_UART_REG_RX)) & 0xff;
+	return readl((void *)(RVB_UART_BASE + RVB_UART_RX_REG_OFFSET)) &
+	       RVB_UART_RX_REG_DATA_MASK;
 }
 
 static struct sbi_console_device rvbucket_console = {
@@ -53,8 +49,8 @@ static struct sbi_console_device rvbucket_console = {
 
 static struct plic_data plic = {
 	.unique_id = 0,
-	.addr = RVBUCKET_PLIC_BASE,
-	.size = RVBUCKET_PLIC_SIZE,
+	.addr = RVB_PLIC_BASE,
+	.size = RVBUCKET_PLIC_CONTEXT_SIZE,
 	.num_src = RVBUCKET_PLIC_NUM_SOURCES,
 	.context_map = {
 #if RVBUCKET_HART_COUNT >= 1
@@ -73,17 +69,17 @@ static struct plic_data plic = {
 };
 
 static struct aclint_mswi_data mswi = {
-	.addr = RVBUCKET_ACLINT_MSWI,
-	.size = ACLINT_MSWI_SIZE,
+	.addr = RVB_MSWI_BASE,
+	.size = RVB_MSWI_SIZE,
 	.first_hartid = 0,
 	.hart_count = RVBUCKET_HART_COUNT,
 };
 
 static struct aclint_mtimer_data mtimer = {
 	.mtime_freq = RVBUCKET_ACLINT_MTIME_FREQ,
-	.mtime_addr = RVBUCKET_ACLINT_MTIME,
-	.mtime_size = 0x8,
-	.mtimecmp_addr = RVBUCKET_ACLINT_MTIMECMP,
+	.mtime_addr = RVB_MTIMER_BASE,
+	.mtime_size = RVB_MTIMER_SIZE,
+	.mtimecmp_addr = RVB_MTIMECMP_BASE,
 	.mtimecmp_size = 0x8 * RVBUCKET_HART_COUNT,
 	.first_hartid = 0,
 	.hart_count = RVBUCKET_HART_COUNT,
@@ -92,12 +88,33 @@ static struct aclint_mtimer_data mtimer = {
 
 static int rvbucket_system_reset_check(u32 type, u32 reason)
 {
-	return 1;
+	switch (type) {
+	case SBI_SRST_RESET_TYPE_SHUTDOWN:
+	case SBI_SRST_RESET_TYPE_COLD_REBOOT:
+	case SBI_SRST_RESET_TYPE_WARM_REBOOT:
+		return 1;
+	default:
+		return 0;
+	}
 }
 
 static void rvbucket_system_reset(u32 type, u32 reason)
 {
-	rvbucket_uart_putc(RVBUCKET_SIM_END_CHAR);
+	rvb_sysctrl_pwr_mngm_req_reg_t pwr_req = { .raw = 0 };
+
+	if (type == SBI_SRST_RESET_TYPE_SHUTDOWN) {
+		pwr_req.fields.cmd =
+			RVB_SYSCTRL_PWR_MNGM_REQ_REG_CMD_POWEROFF;
+		pwr_req.fields.arg =
+			RVB_SYSCTRL_PWR_MNGM_REQ_REG_ARG_NORMAL;
+		writel(pwr_req.raw,
+		       (void *)(RVB_SYSCTRL_BASE +
+				RVB_SYSCTRL_PWR_MNGM_REQ_REG_OFFSET));
+	} else {
+		writel(RVB_SYSCTRL_RESET_REQ_REG_VALUE_MAGIC,
+		       (void *)(RVB_SYSCTRL_BASE +
+				RVB_SYSCTRL_RESET_REQ_REG_OFFSET));
+	}
 	while (1)
 		wfi();
 }
@@ -128,9 +145,9 @@ static int rvbucket_early_init(bool cold_boot)
 
 	sbi_system_reset_add_device(&rvbucket_reset);
 
-	rc = sbi_domain_root_add_memrange(RVBUCKET_PERI_BASE,
-					  RVBUCKET_PERI_SIZE,
-					  RVBUCKET_PERI_SIZE,
+	rc = sbi_domain_root_add_memrange(RVB_PERI_BASE,
+					  RVBUCKET_PERI_DOMAIN_SIZE,
+					  RVBUCKET_PERI_DOMAIN_SIZE,
 					  SBI_DOMAIN_MEMREGION_MMIO |
 					  SBI_DOMAIN_MEMREGION_SHARED_SURW_MRW);
 	if (rc)
@@ -146,6 +163,20 @@ static int rvbucket_irqchip_init(void)
 
 static int rvbucket_timer_init(void)
 {
+	int rc;
+
+	writel(RVBUCKET_MTIMER_TICK_CYCLES,
+	       (void *)RVB_MTIME_CTRL_BASE);
+
+	rc = sbi_domain_root_add_memrange(RVB_MTIME_CTRL_BASE,
+					  RVB_MTIME_CTRL_SIZE,
+					  RVB_MTIME_CTRL_SIZE,
+					  SBI_DOMAIN_MEMREGION_MMIO |
+					  SBI_DOMAIN_MEMREGION_M_READABLE |
+					  SBI_DOMAIN_MEMREGION_M_WRITABLE);
+	if (rc)
+		return rc;
+
 	return aclint_mtimer_cold_init(&mtimer, NULL);
 }
 
