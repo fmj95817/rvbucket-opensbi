@@ -10,6 +10,7 @@
 #include <sbi_utils/ipi/aclint_mswi.h>
 #include <sbi_utils/irqchip/plic.h>
 #include <sbi_utils/timer/aclint_mtimer.h>
+#include "regs/pcm_sample.h"
 #include "regs/sysctrl.h"
 #include "regs/uart.h"
 #include "spec/mmap.h"
@@ -19,6 +20,10 @@
 #define RVBUCKET_PERI_DOMAIN_SIZE    0x01000000UL
 #define RVBUCKET_ACLINT_MTIME_FREQ   10000UL
 #define RVBUCKET_MTIMER_TICK_CYCLES  10000UL
+#define RVBUCKET_PCM_RING_BASE       0x4c000000UL
+#define RVBUCKET_PCM_RING_ENTRIES    32768UL
+#define RVBUCKET_PCM_SAMPLE_PERIOD   10000000UL
+#define RVBUCKET_PCM_TIMESTAMP_PERIOD 100UL
 
 #define RVBUCKET_PLIC_CONTEXT_SIZE   (0x200000UL + \
 					  RVBUCKET_HART_COUNT * 0x1000UL)
@@ -156,6 +161,31 @@ static int rvbucket_early_init(bool cold_boot)
 	return aclint_mswi_cold_init(&mswi);
 }
 
+static int rvbucket_final_init(bool cold_boot)
+{
+	if (!cold_boot)
+		return 0;
+
+	writel(RVBUCKET_PCM_SAMPLE_PERIOD,
+	       (void *)(RVB_PCM_SAMPLE_BASE +
+			RVB_PCM_SAMPLE_SAMPLE_PERIOD_REG_OFFSET));
+	writel(RVBUCKET_PCM_TIMESTAMP_PERIOD,
+	       (void *)(RVB_PCM_SAMPLE_BASE +
+			RVB_PCM_SAMPLE_TIMESTAMP_PERIOD_REG_OFFSET));
+	writel(RVBUCKET_PCM_RING_BASE,
+	       (void *)(RVB_PCM_SAMPLE_BASE +
+			RVB_PCM_SAMPLE_RING_BASE_REG_OFFSET));
+	writel(RVBUCKET_PCM_RING_ENTRIES,
+	       (void *)(RVB_PCM_SAMPLE_BASE +
+			RVB_PCM_SAMPLE_RING_ENTRIES_REG_OFFSET));
+	writel(0, (void *)(RVB_PCM_SAMPLE_BASE +
+			  RVB_PCM_SAMPLE_IRQ_THRESHOLD_REG_OFFSET));
+	writel(RVB_PCM_SAMPLE_CONTROL_REG_START_MASK,
+	       (void *)(RVB_PCM_SAMPLE_BASE +
+			RVB_PCM_SAMPLE_CONTROL_REG_OFFSET));
+	return 0;
+}
+
 static int rvbucket_irqchip_init(void)
 {
 	return plic_cold_irqchip_init(&plic);
@@ -184,6 +214,7 @@ const struct sbi_platform_operations platform_ops = {
 	.nascent_init = rvbucket_nascent_init,
 	.cold_boot_allowed = rvbucket_cold_boot_allowed,
 	.early_init = rvbucket_early_init,
+	.final_init = rvbucket_final_init,
 	.irqchip_init = rvbucket_irqchip_init,
 	.timer_init = rvbucket_timer_init,
 };
