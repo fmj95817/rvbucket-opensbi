@@ -13,8 +13,8 @@
 
 /* cap register, offset: 0x00000004 */
 #define RVB_ETH_CAP_REG_OFFSET 0x00000004
-#define RVB_ETH_CAP_REG_RESET 0x06000007
-#define RVB_ETH_CAP_REG_MASK 0xffff0007
+#define RVB_ETH_CAP_REG_RESET 0x0600000f
+#define RVB_ETH_CAP_REG_MASK 0xffff000f
 #define RVB_ETH_CAP_REG_DMA_SHIFT 0
 #define RVB_ETH_CAP_REG_DMA_MASK 0x00000001
 #define RVB_ETH_CAP_REG_DMA_RESET 0x00000001
@@ -24,6 +24,9 @@
 #define RVB_ETH_CAP_REG_MDIO_SHIFT 2
 #define RVB_ETH_CAP_REG_MDIO_MASK 0x00000004
 #define RVB_ETH_CAP_REG_MDIO_RESET 0x00000001
+#define RVB_ETH_CAP_REG_TCP_CHKSUM_SHIFT 3
+#define RVB_ETH_CAP_REG_TCP_CHKSUM_MASK 0x00000008
+#define RVB_ETH_CAP_REG_TCP_CHKSUM_RESET 0x00000001
 #define RVB_ETH_CAP_REG_MAX_FRAME_SHIFT 16
 #define RVB_ETH_CAP_REG_MAX_FRAME_MASK 0xffff0000
 #define RVB_ETH_CAP_REG_MAX_FRAME_RESET 0x00000600
@@ -280,7 +283,8 @@ typedef union rvb_eth_cap_reg {
         u32 dma : 1;
         u32 ring : 1;
         u32 mdio : 1;
-        u32 rsvd_15_3 : 13;
+        u32 tcp_chksum : 1;
+        u32 rsvd_15_4 : 12;
         u32 max_frame : 16;
     } fields;
 } rvb_eth_cap_reg_t;
